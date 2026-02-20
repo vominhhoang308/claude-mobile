@@ -103,6 +103,7 @@ async function dispatch(
       break;
 
     case 'repo_list':
+      console.log('[agent] repo_list received, sessionId:', msg.sessionId);
       await handleRepoList(relay, githubClient, msg);
       break;
 
@@ -133,9 +134,11 @@ async function handleRepoList(
 ): Promise<void> {
   try {
     const repos = await githubClient.listRepositories();
+    console.log('[agent] repo_list_result sending', repos.length, 'repos');
     const reply: RepoListResultMessage = { type: 'repo_list_result', sessionId: msg.sessionId, repos };
     relay.send(reply);
   } catch (err) {
+    console.error('[agent] repo_list error:', err);
     sendError(relay, msg.sessionId, err);
   }
 }

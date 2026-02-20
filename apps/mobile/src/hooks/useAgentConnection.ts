@@ -1,21 +1,18 @@
 /**
- * High-level hook that orchestrates the full agent connection lifecycle:
+ * High-level hook that exposes agent actions to screens.
  *
- *  1. Reads the stored session token from secure storage (expo-secure-store).
- *  2. Opens a WebSocket to the relay.
- *  3. Handles all inbound messages and dispatches to the agent store.
- *  4. Exposes `pair`, `sendChat`, `startTask`, `fetchRepos`, `disconnect`.
+ * The WebSocket connection, session restoration, and inbound-message handling
+ * have been lifted into AgentProvider (agentStore.tsx) so that a single
+ * connection is shared across all screens. Navigation between screens no
+ * longer closes the WebSocket or drops the relay session.
  *
- * Security: The session token is stored in expo-secure-store (backed by
- * iOS Keychain / Android Keystore). It never touches AsyncStorage.
+ * This hook only exposes:
+ *   pair, sendChat, startTask, fetchRepos, disconnect, isConnected
  */
-import { useEffect, useRef, useCallback } from 'react';
+import { useCallback } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import * as Notifications from 'expo-notifications';
 import { randomUUID } from 'expo-crypto';
-import { useWebSocket } from './useWebSocket';
 import { useAgentStore } from '../store/agentStore';
-import type { InboundMessage } from '../types/protocol';
 
 const SESSION_TOKEN_KEY = 'agent_session_token';
 const RELAY_URL_KEY = 'agent_relay_url';
@@ -31,117 +28,12 @@ export interface AgentConnectionActions {
   fetchRepos: () => void;
   /** Disconnect and clear stored credentials. */
   disconnect: () => Promise<void>;
+  /** True when the session WebSocket is open and ready to send messages. */
+  isConnected: boolean;
 }
 
 export function useAgentConnection(): AgentConnectionActions {
-  const { state, dispatch } = useAgentStore();
-
-  // Build the authenticated relay URL (null until we have a session)
-  const relayWsUrl = state.relayUrl && state.sessionToken
-    ? `${state.relayUrl}?type=mobile&sessionToken=${state.sessionToken}`
-    : null;
-
-  const { send, lastMessage } = useWebSocket(relayWsUrl);
-
-  // Track the current streaming assistant message ID
-  const streamingIdRef = useRef<string | null>(null);
-
-  // ── Restore session on mount ────────────────────────────────────────────────
-  useEffect(() => {
-    void (async () => {
-      const [sessionToken, relayUrl] = await Promise.all([
-        SecureStore.getItemAsync(SESSION_TOKEN_KEY),
-        SecureStore.getItemAsync(RELAY_URL_KEY),
-      ]);
-      if (sessionToken && relayUrl) {
-        dispatch({ type: 'SESSION_ESTABLISHED', sessionToken, relayUrl });
-      }
-    })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Handle incoming messages ────────────────────────────────────────────────
-  useEffect(() => {
-    if (!lastMessage) return;
-    void handleInbound(lastMessage);
-  // handleInbound is stable (defined below with useCallback)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastMessage]);
-
-  const handleInbound = useCallback(
-    async (msg: InboundMessage): Promise<void> => {
-      switch (msg.type) {
-        case 'session_ok': {
-          // This branch is handled inside `pair()` via a one-shot WebSocket
-          break;
-        }
-
-        case 'repo_list_result': {
-          dispatch({ type: 'REPOS_LOADED', repos: msg.repos });
-          break;
-        }
-
-        case 'stream_chunk': {
-          if (streamingIdRef.current === null) {
-            // First chunk — start a new assistant message
-            const id = randomUUID();
-            streamingIdRef.current = id;
-            dispatch({ type: 'CHAT_ASSISTANT_START', id });
-          }
-          // Could be task log or chat chunk — route by whether task is active
-          if (state.task !== null) {
-            dispatch({ type: 'TASK_LOG_CHUNK', chunk: msg.text });
-          } else {
-            dispatch({
-              type: 'CHAT_ASSISTANT_CHUNK',
-              id: streamingIdRef.current,
-              chunk: msg.text,
-            });
-          }
-          break;
-        }
-
-        case 'stream_end': {
-          if (streamingIdRef.current !== null) {
-            dispatch({ type: 'CHAT_ASSISTANT_END', id: streamingIdRef.current });
-            streamingIdRef.current = null;
-          }
-          break;
-        }
-
-        case 'task_done': {
-          dispatch({ type: 'TASK_DONE', prUrl: msg.prUrl, prTitle: msg.prTitle });
-          // Fire a local push notification
-          await Notifications.scheduleNotificationAsync({
-            content: {
-              title: 'PR ready',
-              body: msg.prTitle,
-              data: { prUrl: msg.prUrl },
-            },
-            trigger: null, // fire immediately
-          });
-          break;
-        }
-
-        case 'error': {
-          // If repos haven't loaded yet, this error is from the repo fetch — stop the spinner
-          if (!state.reposFetched) {
-            dispatch({ type: 'REPOS_FETCH_DONE' });
-          }
-          // Surface the error as an assistant message so it's visible in chat
-          const errId = randomUUID();
-          dispatch({ type: 'CHAT_ASSISTANT_START', id: errId });
-          dispatch({ type: 'CHAT_ASSISTANT_CHUNK', id: errId, chunk: `Error: ${msg.message}` });
-          dispatch({ type: 'CHAT_ASSISTANT_END', id: errId });
-          break;
-        }
-
-        default:
-          break;
-      }
-    },
-    [dispatch, state.task, state.reposFetched]
-  );
+  const { state, dispatch, send, isConnected } = useAgentStore();
 
   // ── Public actions ──────────────────────────────────────────────────────────
 
@@ -164,7 +56,11 @@ export function useAgentConnection(): AgentConnectionActions {
         ws.onmessage = async (event) => {
           clearTimeout(timeout);
           try {
-            const msg = JSON.parse(event.data as string) as { type: string; sessionToken?: string; message?: string };
+            const msg = JSON.parse(event.data as string) as {
+              type: string;
+              sessionToken?: string;
+              message?: string;
+            };
             if (msg.type === 'session_ok' && msg.sessionToken) {
               await SecureStore.setItemAsync(SESSION_TOKEN_KEY, msg.sessionToken);
               await SecureStore.setItemAsync(RELAY_URL_KEY, relayUrl);
@@ -241,5 +137,5 @@ export function useAgentConnection(): AgentConnectionActions {
     dispatch({ type: 'SESSION_CLOSED' });
   }, [dispatch]);
 
-  return { pair, sendChat, startTask, fetchRepos, disconnect };
+  return { pair, sendChat, startTask, fetchRepos, disconnect, isConnected };
 }

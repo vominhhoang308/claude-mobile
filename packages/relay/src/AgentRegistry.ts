@@ -137,8 +137,12 @@ export class AgentRegistry {
     });
 
     ws.addEventListener('close', () => {
-      this.mobileConnections.delete(sessionToken);
-      this.sessions.delete(sessionToken);
+      // Only clean up if this WS is still the active connection for this session.
+      // If the mobile app reconnected and registered a new WS, leave it intact.
+      if (this.mobileConnections.get(sessionToken) === ws) {
+        this.mobileConnections.delete(sessionToken);
+        this.sessions.delete(sessionToken);
+      }
     });
   }
 

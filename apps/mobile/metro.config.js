@@ -6,6 +6,8 @@ const monorepoRoot = path.resolve(projectRoot, '../..');
 
 const config = getDefaultConfig(projectRoot);
 
+config.projectRoot = projectRoot;
+
 // Watch the monorepo root so Metro can resolve packages from root node_modules
 config.watchFolders = [monorepoRoot];
 

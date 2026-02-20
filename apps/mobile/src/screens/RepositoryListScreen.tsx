@@ -28,15 +28,19 @@ export default function RepositoryListScreen({
 }: RepositoryListScreenProps): React.JSX.Element {
   const theme = useTheme();
   const { state, dispatch } = useAgentStore();
-  const { fetchRepos } = useAgentConnection();
+  const { fetchRepos, isConnected } = useAgentConnection();
 
   const styles = makeStyles(theme);
   const isLoading = !state.reposFetched;
 
+  // Fetch repos as soon as the session WebSocket is open.
+  // Using isConnected as the trigger avoids the race where fetchRepos() fires
+  // before the WS handshake completes and send() silently drops the message.
   useEffect(() => {
-    fetchRepos();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (isConnected && !state.reposFetched) {
+      fetchRepos();
+    }
+  }, [isConnected, state.reposFetched, fetchRepos]);
 
   const handleSelectRepo = useCallback(
     (repo: Repository): void => {

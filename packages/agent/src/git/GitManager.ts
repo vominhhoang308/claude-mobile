@@ -20,7 +20,7 @@ export class GitManager {
     const dir = this.repoPath(fullName);
 
     if (existsSync(path.join(dir, '.git'))) {
-      await simpleGit(dir).pull();
+      await simpleGit(dir).pull(['--no-rebase']);
     } else {
       await fs.mkdir(dir, { recursive: true });
       await simpleGit().clone(cloneUrl, dir);

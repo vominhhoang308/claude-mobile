@@ -134,7 +134,6 @@ export function useAgentConnection(): AgentConnectionActions {
 
   const disconnect = useCallback(async (): Promise<void> => {
     await SecureStore.deleteItemAsync(SESSION_TOKEN_KEY);
-    await SecureStore.deleteItemAsync(RELAY_URL_KEY);
     dispatch({ type: 'SESSION_CLOSED' });
   }, [dispatch]);
 

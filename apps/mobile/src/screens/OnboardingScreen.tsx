@@ -8,7 +8,7 @@
  * On success, the session token is persisted and the app navigates to
  * RepositoryListScreen automatically (via RootNavigator watching isConnected).
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -22,11 +22,12 @@ import {
   AccessibilityInfo,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as SecureStore from 'expo-secure-store';
 import { useTheme } from '../theme';
 import { useAgentConnection } from '../hooks/useAgentConnection';
 
-
 const DEFAULT_RELAY_URL = 'wss://relay.claude-mobile.app';
+const RELAY_URL_KEY = 'agent_relay_url';
 
 export default function OnboardingScreen(): React.JSX.Element {
   const theme = useTheme();
@@ -36,6 +37,13 @@ export default function OnboardingScreen(): React.JSX.Element {
   const [pairingCode, setPairingCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      const stored = await SecureStore.getItemAsync(RELAY_URL_KEY);
+      if (stored) setRelayUrl(stored);
+    })();
+  }, []);
 
   const styles = makeStyles(theme);
 

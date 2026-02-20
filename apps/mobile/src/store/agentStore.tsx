@@ -278,7 +278,6 @@ export function AgentProvider({ children }: { children: React.ReactNode }): Reac
           // Session expired means stale token — clear it so the user re-pairs
           if (msg.message === 'Session expired — reconnect') {
             void SecureStore.deleteItemAsync(SESSION_TOKEN_KEY);
-            void SecureStore.deleteItemAsync(RELAY_URL_KEY);
             dispatch({ type: 'SESSION_CLOSED' });
             break;
           }

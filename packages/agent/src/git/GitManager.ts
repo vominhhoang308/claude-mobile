@@ -61,6 +61,45 @@ export class GitManager {
   }
 
   /**
+   * Returns true if there are any uncommitted changes (staged or unstaged).
+   */
+  async hasChanges(repoDir: string): Promise<boolean> {
+    const status = await simpleGit(repoDir).status();
+    return status.files.length > 0;
+  }
+
+  /**
+   * Checks out an existing branch, or creates and checks out a new one.
+   */
+  async checkoutBranch(repoDir: string, branchName: string): Promise<void> {
+    const git = simpleGit(repoDir);
+    const branches = await git.branchLocal();
+    if (branches.all.includes(branchName)) {
+      await git.checkout(branchName);
+    } else {
+      await git.checkoutLocalBranch(branchName);
+    }
+  }
+
+  /**
+   * Stages all changes, commits, and force-pushes to `branchName`, then
+   * restores the workspace to `defaultBranch` so the next `ensureRepo` pull
+   * starts from a clean state.
+   */
+  async commitAndPushToBranch(
+    repoDir: string,
+    branchName: string,
+    message: string,
+    defaultBranch: string
+  ): Promise<void> {
+    const git = simpleGit(repoDir);
+    await git.add('.');
+    await git.commit(message, { '--no-verify': null });
+    await git.push('origin', branchName, ['--set-upstream', '--force-with-lease']);
+    await git.checkout(defaultBranch);
+  }
+
+  /**
    * Derives a branch name from a free-form task description.
    * Format: `claude-mobile/<slug>-<timestamp>`
    */

@@ -93,7 +93,7 @@ describe('ChatScreen', () => {
     fireEvent.changeText(input, 'explain the code');
     const sendButton = screen.getByLabelText('Send message');
     fireEvent.press(sendButton);
-    expect(mockSendChat).toHaveBeenCalledWith('explain the code');
+    expect(mockSendChat).toHaveBeenCalledWith('explain the code', expect.any(String));
   });
 
   it('clears input after sending', () => {

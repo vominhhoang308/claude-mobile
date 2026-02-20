@@ -54,8 +54,8 @@ describe('ClaudeRunner', () => {
     runner = new ClaudeRunner('claude');
   });
 
-  describe('run() — interactive mode', () => {
-    it('invokes claude with -p flag and the prompt', async () => {
+  describe('run()', () => {
+    it('invokes claude with --dangerously-skip-permissions, -p, and the prompt', async () => {
       const runPromise = runner.run({ workingDir: '/tmp/repo', prompt: 'list files' });
 
       (mockChild as unknown as Record<string, (code: number) => void>)._emitClose(0);
@@ -63,15 +63,15 @@ describe('ClaudeRunner', () => {
       await runPromise;
 
       expect(capturedArgs.cmd).toBe('claude');
-      expect(capturedArgs.args).toEqual(['-p', 'list files']);
+      expect(capturedArgs.args).toEqual(['--dangerously-skip-permissions', '-p', 'list files']);
       expect(capturedArgs.options).toMatchObject({ cwd: '/tmp/repo' });
     });
 
-    it('does NOT include --dangerously-skip-permissions in interactive mode', async () => {
+    it('always includes --dangerously-skip-permissions (no TTY to respond to prompts)', async () => {
       const runPromise = runner.run({ workingDir: '/tmp', prompt: 'hello' });
       (mockChild as unknown as Record<string, (code: number) => void>)._emitClose(0);
       await runPromise;
-      expect(capturedArgs.args).not.toContain('--dangerously-skip-permissions');
+      expect(capturedArgs.args).toContain('--dangerously-skip-permissions');
     });
   });
 

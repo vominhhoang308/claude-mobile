@@ -20,8 +20,8 @@ const RELAY_URL_KEY = 'agent_relay_url';
 export interface AgentConnectionActions {
   /** Exchange a pairing code for a session token. */
   pair: (relayUrl: string, pairingCode: string) => Promise<void>;
-  /** Send a chat message to the agent. */
-  sendChat: (text: string) => void;
+  /** Send a chat message to the agent. Changes are committed to `branchName` if provided. */
+  sendChat: (text: string, branchName: string) => void;
   /** Hand off the current chat context as an autonomous background task. */
   startTask: (context: string) => void;
   /** Request the list of GitHub repos from the agent. */
@@ -92,7 +92,7 @@ export function useAgentConnection(): AgentConnectionActions {
   );
 
   const sendChat = useCallback(
-    (text: string): void => {
+    (text: string, branchName: string): void => {
       if (!state.sessionToken || !state.selectedRepo) return;
 
       const msgId = randomUUID();
@@ -103,6 +103,7 @@ export function useAgentConnection(): AgentConnectionActions {
         sessionId: state.sessionToken,
         text,
         repoFullName: state.selectedRepo.fullName,
+        branchName,
       });
     },
     [send, dispatch, state.sessionToken, state.selectedRepo]

@@ -27,6 +27,8 @@ export interface ChatMessageMessage {
   sessionId: string;
   text: string;
   repoFullName?: string;
+  /** Branch to commit any file edits into. Omit to skip committing. */
+  branchName?: string;
 }
 
 export interface TaskStartMessage {

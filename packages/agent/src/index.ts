@@ -154,6 +154,13 @@ async function handleChatMessage(
     ? await ensureRepo(gitManager, githubToken, msg.repoFullName)
     : process.cwd();
 
+  // Capture the current branch so we can restore it after committing
+  let defaultBranch = 'main';
+  if (msg.repoFullName && msg.branchName) {
+    defaultBranch = await gitManager.getCurrentBranch(workingDir);
+    await gitManager.checkoutBranch(workingDir, msg.branchName);
+  }
+
   try {
     await claudeRunner.run({
       workingDir,
@@ -170,6 +177,25 @@ async function handleChatMessage(
   } catch (err) {
     sendError(relay, msg.sessionId, err);
     return;
+  }
+
+  // Commit and push any file edits Claude made
+  if (msg.repoFullName && msg.branchName && (await gitManager.hasChanges(workingDir))) {
+    try {
+      await gitManager.commitAndPushToBranch(
+        workingDir,
+        msg.branchName,
+        `Claude on Mobile: ${msg.text.slice(0, 72)}`,
+        defaultBranch
+      );
+      relay.send({
+        type: 'stream_chunk',
+        sessionId: msg.sessionId,
+        text: `\n\n---\nChanges committed → \`${msg.branchName}\``,
+      });
+    } catch (commitErr) {
+      console.error('[agent] Failed to commit chat changes:', commitErr);
+    }
   }
 
   const end: StreamEndMessage = { type: 'stream_end', sessionId: msg.sessionId };

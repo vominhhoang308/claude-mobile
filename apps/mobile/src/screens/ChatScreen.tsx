@@ -12,7 +12,7 @@
  *  - `React.memo` on the message bubble prevents unnecessary re-renders
  *  - Streaming appends to the last message in-place via the reducer
  */
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import {
   Platform,
   KeyboardAvoidingView,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import type { ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -104,16 +105,51 @@ export default function ChatScreen({ navigation }: ChatScreenProps): React.JSX.E
   const styles = makeStyles(theme);
 
   const [inputText, setInputText] = useState('');
+  const [targetBranch, setTargetBranch] = useState(
+    state.selectedRepo?.defaultBranch ?? 'main'
+  );
   const listRef = useRef<FlatList<ChatMessage>>(null);
 
+  // Reset branch to the new repo's default whenever the selected repo changes
+  const selectedRepoFullName = state.selectedRepo?.fullName;
+  useEffect(() => {
+    if (state.selectedRepo) {
+      setTargetBranch(state.selectedRepo.defaultBranch);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRepoFullName]);
+
   const isStreaming = state.chatMessages.some((m) => m.isStreaming);
+
+  const handleBranchPress = useCallback((): void => {
+    if (Platform.OS === 'ios') {
+      Alert.prompt(
+        'Target branch',
+        'Claude\'s file edits will be committed to this branch.',
+        (value) => {
+          const trimmed = value?.trim();
+          if (trimmed) setTargetBranch(trimmed);
+        },
+        'plain-text',
+        targetBranch
+      );
+    } else {
+      // Android: Alert.prompt is unavailable — show an alert with instructions
+      // and fall back to inline editing via the branch TextInput shown below.
+      Alert.alert(
+        'Change branch',
+        'Tap the branch name to edit it inline.',
+        [{ text: 'OK' }]
+      );
+    }
+  }, [targetBranch]);
 
   const handleSend = useCallback((): void => {
     const text = inputText.trim();
     if (!text || isStreaming) return;
     setInputText('');
-    sendChat(text);
-  }, [inputText, isStreaming, sendChat]);
+    sendChat(text, targetBranch);
+  }, [inputText, isStreaming, sendChat, targetBranch]);
 
   const handleRunAutonomously = useCallback((): void => {
     // Summarise the conversation as context for the autonomous task
@@ -171,6 +207,33 @@ export default function ChatScreen({ navigation }: ChatScreenProps): React.JSX.E
             accessibilityHint="Hand off this task to the agent to run in the background and open a PR"
           >
             <Text style={styles.autonomousButtonLabel}>Run autonomously →</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Branch selector — only shown when a repo is selected */}
+        {state.selectedRepo !== null && (
+          <TouchableOpacity
+            style={styles.branchRow}
+            onPress={handleBranchPress}
+            accessibilityRole="button"
+            accessibilityLabel={`Target branch: ${targetBranch}. Tap to change.`}
+          >
+            <Text style={styles.branchLabel}>Branch: </Text>
+            {Platform.OS === 'android' ? (
+              <TextInput
+                style={styles.branchInput}
+                value={targetBranch}
+                onChangeText={setTargetBranch}
+                autoCapitalize="none"
+                autoCorrect={false}
+                accessibilityLabel="Target branch name"
+              />
+            ) : (
+              <Text style={styles.branchValue} numberOfLines={1}>
+                {targetBranch}
+              </Text>
+            )}
+            <Text style={styles.branchEdit}>✎</Text>
           </TouchableOpacity>
         )}
 
@@ -263,6 +326,39 @@ function makeStyles(theme: ReturnType<typeof useTheme>) {
       fontSize: theme.fontSize.sm,
       color: theme.colors.accent,
       fontWeight: '600',
+    },
+    branchRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginHorizontal: theme.spacing.md,
+      marginBottom: theme.spacing.xs,
+      paddingHorizontal: theme.spacing.sm,
+      paddingVertical: theme.spacing.xs,
+      borderRadius: theme.radius.md,
+      backgroundColor: theme.colors.backgroundSecondary,
+      minHeight: 36,
+    },
+    branchLabel: {
+      fontSize: theme.fontSize.sm,
+      color: theme.colors.textTertiary,
+    },
+    branchValue: {
+      flex: 1,
+      fontSize: theme.fontSize.sm,
+      color: theme.colors.textSecondary,
+      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    },
+    branchInput: {
+      flex: 1,
+      fontSize: theme.fontSize.sm,
+      color: theme.colors.textPrimary,
+      fontFamily: 'monospace',
+      paddingVertical: 0,
+    },
+    branchEdit: {
+      fontSize: theme.fontSize.sm,
+      color: theme.colors.textTertiary,
+      marginLeft: theme.spacing.xs,
     },
     inputBar: {
       flexDirection: 'row',

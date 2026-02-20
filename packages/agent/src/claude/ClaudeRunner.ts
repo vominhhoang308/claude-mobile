@@ -22,9 +22,11 @@ export interface RunResult {
 /**
  * Thin wrapper around the `claude` CLI.
  *
- * Invocation:
- *   Interactive (chat):   claude -p "<prompt>"
- *   Autonomous (task):    claude --dangerously-skip-permissions -p "<prompt>"
+ * Invocation: claude --dangerously-skip-permissions -p "<prompt>"
+ *
+ * `--dangerously-skip-permissions` is always set because the agent spawns Claude
+ * as a headless child process with no TTY — there is nobody to respond to
+ * interactive permission prompts.
  *
  * stdout/stderr are streamed in real time via `onChunk`.
  */
@@ -32,14 +34,14 @@ export class ClaudeRunner {
   constructor(private readonly claudeBin: string = 'claude') {}
 
   run(options: RunOptions): Promise<RunResult> {
-    const { workingDir, prompt, autonomous = false, onChunk } = options;
+    const { workingDir, prompt, onChunk } = options;
 
     return new Promise<RunResult>((resolve, reject) => {
       const args: string[] = [];
 
-      if (autonomous) {
-        args.push('--dangerously-skip-permissions');
-      }
+      // Always required — no TTY is available to respond to permission prompts
+      // when Claude is spawned as a headless child process.
+      args.push('--dangerously-skip-permissions');
 
       // -p runs Claude in print (non-interactive) mode
       args.push('-p', prompt);

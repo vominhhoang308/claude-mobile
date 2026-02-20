@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+out/
+.expo/
+.expo-shared/
+
+# Native
+ios/
+android/
+
+# TypeScript
+*.tsbuildinfo
+
+# Testing
+coverage/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+*.DS_Store
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Cloudflare
+.wrangler/
+
+# Agent workspace (repos cloned at runtime)
+.claude-mobile/

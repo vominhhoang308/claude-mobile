@@ -1,0 +1,21 @@
+name = "claude-mobile-relay"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[durable_objects]
+bindings = [
+  { name = "AGENT_REGISTRY", class_name = "AgentRegistry" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["AgentRegistry"]
+
+[vars]
+# No secrets stored here — all injected via `wrangler secret put`
+
+# Development settings
+[dev]
+port = 8787
+local_protocol = "http"

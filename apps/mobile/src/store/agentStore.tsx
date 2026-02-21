@@ -21,10 +21,12 @@ import * as SecureStore from 'expo-secure-store';
 import * as Notifications from 'expo-notifications';
 import { randomUUID } from 'expo-crypto';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { doPair } from '../hooks/useAgentConnection';
 import type { Repository, InboundMessage, OutboundMessage } from '../types/protocol';
 
 const SESSION_TOKEN_KEY = 'agent_session_token';
 const RELAY_URL_KEY = 'agent_relay_url';
+const PAIRING_CODE_KEY = 'agent_pairing_code';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -275,10 +277,25 @@ export function AgentProvider({ children }: { children: React.ReactNode }): Reac
         }
 
         case 'error': {
-          // Session expired means stale token — clear it so the user re-pairs
+          // Session expired — try to auto-re-pair with the stored pairing code
           if (msg.message === 'Session expired — reconnect') {
-            void SecureStore.deleteItemAsync(SESSION_TOKEN_KEY);
-            dispatch({ type: 'SESSION_CLOSED' });
+            await SecureStore.deleteItemAsync(SESSION_TOKEN_KEY);
+            const [pairingCode, relayUrl] = await Promise.all([
+              SecureStore.getItemAsync(PAIRING_CODE_KEY),
+              SecureStore.getItemAsync(RELAY_URL_KEY),
+            ]);
+            if (pairingCode && relayUrl) {
+              try {
+                const sessionToken = await doPair(relayUrl, pairingCode);
+                await SecureStore.setItemAsync(SESSION_TOKEN_KEY, sessionToken);
+                dispatch({ type: 'SESSION_ESTABLISHED', sessionToken, relayUrl });
+              } catch {
+                await SecureStore.deleteItemAsync(PAIRING_CODE_KEY);
+                dispatch({ type: 'SESSION_CLOSED' });
+              }
+            } else {
+              dispatch({ type: 'SESSION_CLOSED' });
+            }
             break;
           }
           // If repos haven't loaded yet, stop the spinner

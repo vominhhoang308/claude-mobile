@@ -28,6 +28,7 @@ import { useAgentConnection } from '../hooks/useAgentConnection';
 
 const DEFAULT_RELAY_URL = 'wss://relay.claude-mobile.app';
 const RELAY_URL_KEY = 'agent_relay_url';
+const PAIRING_CODE_KEY = 'agent_pairing_code';
 
 export default function OnboardingScreen(): React.JSX.Element {
   const theme = useTheme();
@@ -40,8 +41,12 @@ export default function OnboardingScreen(): React.JSX.Element {
 
   useEffect(() => {
     void (async () => {
-      const stored = await SecureStore.getItemAsync(RELAY_URL_KEY);
-      if (stored) setRelayUrl(stored);
+      const [storedRelay, storedCode] = await Promise.all([
+        SecureStore.getItemAsync(RELAY_URL_KEY),
+        SecureStore.getItemAsync(PAIRING_CODE_KEY),
+      ]);
+      if (storedRelay) setRelayUrl(storedRelay);
+      if (storedCode) setPairingCode(storedCode);
     })();
   }, []);
 

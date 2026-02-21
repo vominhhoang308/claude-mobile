@@ -23,21 +23,38 @@ const APP_VERSION = '0.1.0';
 export default function SettingsScreen({ navigation }: SettingsScreenProps): React.JSX.Element {
   const theme = useTheme();
   const { state } = useAgentStore();
-  const { disconnect } = useAgentConnection();
+  const { disconnectOnly, disconnect } = useAgentConnection();
   const styles = makeStyles(theme);
 
-  const handleDisconnect = useCallback((): void => {
+  const handleDisconnectOnly = useCallback((): void => {
     Alert.alert(
-      'Disconnect agent',
-      'This will remove the stored session. You will need to pair again.',
+      'Disconnect',
+      'This will close the session. The pairing code stays valid — the app will reconnect automatically next time.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Disconnect',
           style: 'destructive',
           onPress: () => {
+            void disconnectOnly();
+            navigation.popToTop();
+          },
+        },
+      ]
+    );
+  }, [disconnectOnly, navigation]);
+
+  const handleInvalidate = useCallback((): void => {
+    Alert.alert(
+      'Invalidate pairing code',
+      'This will invalidate the current pairing code and clear the stored session. A new pairing code will appear in the agent terminal — you will need to enter it to reconnect.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Invalidate',
+          style: 'destructive',
+          onPress: () => {
             void disconnect();
-            // RootNavigator will switch to the auth stack automatically
             navigation.popToTop();
           },
         },
@@ -81,16 +98,25 @@ export default function SettingsScreen({ navigation }: SettingsScreenProps): Rea
         )}
       </View>
 
-      {/* Disconnect button */}
+      {/* Disconnect buttons */}
       <View style={styles.section}>
         <TouchableOpacity
           style={styles.destructiveButton}
-          onPress={handleDisconnect}
+          onPress={handleDisconnectOnly}
           accessibilityRole="button"
-          accessibilityLabel="Disconnect agent"
-          accessibilityHint="Removes the stored session and returns to the pairing screen"
+          accessibilityLabel="Disconnect"
+          accessibilityHint="Closes the session but keeps the pairing code so the app can reconnect automatically"
         >
-          <Text style={styles.destructiveButtonLabel}>Disconnect agent…</Text>
+          <Text style={styles.destructiveButtonLabel}>Disconnect…</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.destructiveButton, styles.destructiveButtonBorder]}
+          onPress={handleInvalidate}
+          accessibilityRole="button"
+          accessibilityLabel="Disconnect and invalidate pairing code"
+          accessibilityHint="Invalidates the pairing code and clears the stored session, returning to the pairing screen"
+        >
+          <Text style={styles.destructiveButtonLabel}>Disconnect and invalidate pairing code…</Text>
         </TouchableOpacity>
       </View>
 
@@ -169,6 +195,10 @@ function makeStyles(theme: ReturnType<typeof useTheme>) {
       minHeight: 44,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    destructiveButtonBorder: {
+      borderTopWidth: 1,
+      borderTopColor: theme.colors.border,
     },
     destructiveButtonLabel: {
       fontSize: theme.fontSize.md,

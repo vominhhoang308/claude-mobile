@@ -49,6 +49,11 @@ export interface PingMessage {
   sessionId: string;
 }
 
+export interface InvalidatePairingMessage {
+  type: 'invalidate_pairing';
+  sessionId: string;
+}
+
 export interface StreamChunkMessage {
   type: 'stream_chunk';
   sessionId: string;
@@ -100,7 +105,8 @@ export type OutboundMessage =
   | ChatMessageMessage
   | TaskStartMessage
   | RepoListRequestMessage
-  | PingMessage;
+  | PingMessage
+  | InvalidatePairingMessage;
 
 /** Messages the mobile app receives from the relay/agent */
 export type InboundMessage =

@@ -16,6 +16,7 @@ import { useAgentStore } from '../store/agentStore';
 
 const SESSION_TOKEN_KEY = 'agent_session_token';
 const RELAY_URL_KEY = 'agent_relay_url';
+const PAIRING_CODE_KEY = 'agent_pairing_code';
 
 export interface AgentConnectionActions {
   /** Exchange a pairing code for a session token. */
@@ -26,10 +27,50 @@ export interface AgentConnectionActions {
   startTask: (context: string) => void;
   /** Request the list of GitHub repos from the agent. */
   fetchRepos: () => void;
-  /** Disconnect and clear stored credentials. */
+  /** Clear the session token only. Pairing code is kept so auto-reconnect still works. */
+  disconnectOnly: () => Promise<void>;
+  /** Send invalidate_pairing to the relay, then clear both session token and pairing code. */
   disconnect: () => Promise<void>;
   /** True when the session WebSocket is open and ready to send messages. */
   isConnected: boolean;
+}
+
+/** Low-level pairing: opens one-shot WS and returns the sessionToken. */
+export async function doPair(relayUrl: string, pairingCode: string): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const ws = new WebSocket(`${relayUrl}?type=mobile`);
+
+    const timeout = setTimeout(() => {
+      ws.close();
+      reject(new Error('Pairing timed out'));
+    }, 15_000);
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'mobile_connect', pairingCode }));
+    };
+
+    ws.onmessage = (event) => {
+      clearTimeout(timeout);
+      const msg = JSON.parse(event.data as string) as {
+        type: string;
+        sessionToken?: string;
+        message?: string;
+      };
+      if (msg.type === 'session_ok' && msg.sessionToken) {
+        ws.close();
+        resolve(msg.sessionToken);
+      } else {
+        ws.close();
+        reject(new Error(msg.message ?? 'Pairing failed'));
+      }
+    };
+
+    ws.onerror = () => {
+      clearTimeout(timeout);
+      ws.close();
+      reject(new Error('Could not connect to relay'));
+    };
+  });
 }
 
 export function useAgentConnection(): AgentConnectionActions {
@@ -39,54 +80,11 @@ export function useAgentConnection(): AgentConnectionActions {
 
   const pair = useCallback(
     async (relayUrl: string, pairingCode: string): Promise<void> => {
-      // Use a one-shot WebSocket just for pairing (no session token yet)
-      const pairingUrl = `${relayUrl}?type=mobile`;
-      await new Promise<void>((resolve, reject) => {
-        const ws = new WebSocket(pairingUrl);
-
-        const timeout = setTimeout(() => {
-          ws.close();
-          reject(new Error('Pairing timed out'));
-        }, 15_000);
-
-        ws.onopen = () => {
-          ws.send(JSON.stringify({ type: 'mobile_connect', pairingCode }));
-        };
-
-        ws.onmessage = async (event) => {
-          clearTimeout(timeout);
-          try {
-            const msg = JSON.parse(event.data as string) as {
-              type: string;
-              sessionToken?: string;
-              message?: string;
-            };
-            if (msg.type === 'session_ok' && msg.sessionToken) {
-              await SecureStore.setItemAsync(SESSION_TOKEN_KEY, msg.sessionToken);
-              await SecureStore.setItemAsync(RELAY_URL_KEY, relayUrl);
-              dispatch({
-                type: 'SESSION_ESTABLISHED',
-                sessionToken: msg.sessionToken,
-                relayUrl,
-              });
-              ws.close();
-              resolve();
-            } else if (msg.type === 'error') {
-              ws.close();
-              reject(new Error(msg.message ?? 'Pairing failed'));
-            }
-          } catch (err) {
-            ws.close();
-            reject(err);
-          }
-        };
-
-        ws.onerror = () => {
-          clearTimeout(timeout);
-          ws.close();
-          reject(new Error('Could not connect to relay'));
-        };
-      });
+      const sessionToken = await doPair(relayUrl, pairingCode);
+      await SecureStore.setItemAsync(SESSION_TOKEN_KEY, sessionToken);
+      await SecureStore.setItemAsync(RELAY_URL_KEY, relayUrl);
+      await SecureStore.setItemAsync(PAIRING_CODE_KEY, pairingCode);
+      dispatch({ type: 'SESSION_ESTABLISHED', sessionToken, relayUrl });
     },
     [dispatch]
   );
@@ -132,10 +130,19 @@ export function useAgentConnection(): AgentConnectionActions {
     send({ type: 'repo_list', sessionId: state.sessionToken });
   }, [send, state.sessionToken]);
 
-  const disconnect = useCallback(async (): Promise<void> => {
+  const disconnectOnly = useCallback(async (): Promise<void> => {
     await SecureStore.deleteItemAsync(SESSION_TOKEN_KEY);
     dispatch({ type: 'SESSION_CLOSED' });
   }, [dispatch]);
 
-  return { pair, sendChat, startTask, fetchRepos, disconnect, isConnected };
+  const disconnect = useCallback(async (): Promise<void> => {
+    if (state.sessionToken && isConnected) {
+      send({ type: 'invalidate_pairing', sessionId: state.sessionToken });
+    }
+    await SecureStore.deleteItemAsync(SESSION_TOKEN_KEY);
+    await SecureStore.deleteItemAsync(PAIRING_CODE_KEY);
+    dispatch({ type: 'SESSION_CLOSED' });
+  }, [dispatch, send, state.sessionToken, isConnected]);
+
+  return { pair, sendChat, startTask, fetchRepos, disconnectOnly, disconnect, isConnected };
 }

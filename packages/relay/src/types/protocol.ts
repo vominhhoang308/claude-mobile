@@ -23,6 +23,11 @@ export interface MobileConnectMessage {
   pairingCode: string;
 }
 
+export interface InvalidatePairingMessage {
+  type: 'invalidate_pairing';
+  sessionId: string;
+}
+
 // ─── Relay → Mobile (pairing handshake) ──────────────────────────────────────
 
 export interface SessionOkMessage {
@@ -110,6 +115,7 @@ export type RelayMessage =
   | AgentRegisterMessage
   | RegisterOkMessage
   | MobileConnectMessage
+  | InvalidatePairingMessage
   | SessionOkMessage
   | ChatMessageMessage
   | TaskStartMessage

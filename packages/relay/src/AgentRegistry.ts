@@ -17,10 +17,14 @@ interface AgentEntry {
 export class AgentRegistry {
   // agentToken → AgentEntry
   private agents = new Map<string, AgentEntry>();
-  // pairingCode → agentToken  (6-digit code valid until mobile pairs)
+  // pairingCode → agentToken
   private pairingCodes = new Map<string, string>();
+  // agentToken → stable pairing code (survives agent WS drops)
+  private agentCodes = new Map<string, string>();
   // sessionToken → agentToken  (UUID, valid for life of mobile session)
   private sessions = new Map<string, string>();
+  // sessionToken → pairing code that created it (for invalidation lookup)
+  private sessionToPairingCode = new Map<string, string>();
   // sessionToken → mobile WebSocket
   private mobileConnections = new Map<string, WebSocket>();
 
@@ -54,6 +58,12 @@ export class AgentRegistry {
     } else {
       const sessionToken = url.searchParams.get('sessionToken');
       if (sessionToken) {
+        // Validate session before accepting mobile reconnect
+        if (!this.sessions.has(sessionToken)) {
+          server.send(JSON.stringify({ type: 'error', message: 'Session expired — reconnect' }));
+          server.close(4001, 'Session expired');
+          return new Response(null, { status: 101, webSocket: client });
+        }
         this.mobileConnections.set(sessionToken, server);
         this.handleMobileConnection(server, sessionToken);
       } else {
@@ -78,13 +88,14 @@ export class AgentRegistry {
       }
 
       if (msg.type === 'agent_register') {
-        const existingEntry = this.agents.get(agentToken);
-        if (existingEntry) {
-          this.pairingCodes.delete(existingEntry.pairingCode);
+        // Reuse the existing code if one was already assigned to this agent
+        let pairingCode = this.agentCodes.get(agentToken);
+        if (!pairingCode) {
+          pairingCode = this.generatePairingCode();
+          this.agentCodes.set(agentToken, pairingCode);
+          this.pairingCodes.set(pairingCode, agentToken);
         }
-        const pairingCode = this.generatePairingCode();
         this.agents.set(agentToken, { ws, pairingCode, connectedAt: Date.now() });
-        this.pairingCodes.set(pairingCode, agentToken);
         ws.send(JSON.stringify({ type: 'register_ok', pairingCode }));
         return;
       }
@@ -97,11 +108,8 @@ export class AgentRegistry {
     });
 
     ws.addEventListener('close', () => {
-      const entry = this.agents.get(agentToken);
-      if (entry) {
-        this.pairingCodes.delete(entry.pairingCode);
-        this.agents.delete(agentToken);
-      }
+      this.agents.delete(agentToken);
+      // agentCodes and pairingCodes intentionally kept — agent may reconnect
     });
 
     ws.addEventListener('error', (event) => {
@@ -117,6 +125,33 @@ export class AgentRegistry {
       try {
         msg = JSON.parse(data) as RelayMessage;
       } catch {
+        return;
+      }
+
+      // Handle pairing invalidation before forwarding
+      if (msg.type === 'invalidate_pairing') {
+        const agentToken = this.sessions.get(sessionToken);
+        // Remove session
+        this.sessions.delete(sessionToken);
+        if (this.mobileConnections.get(sessionToken) === ws) {
+          this.mobileConnections.delete(sessionToken);
+        }
+        // Revoke old pairing code and issue a fresh one for the agent
+        const oldCode = this.sessionToPairingCode.get(sessionToken);
+        this.sessionToPairingCode.delete(sessionToken);
+        if (agentToken && oldCode) {
+          this.pairingCodes.delete(oldCode);
+          this.agentCodes.delete(agentToken);
+          const newCode = this.generatePairingCode();
+          this.agentCodes.set(agentToken, newCode);
+          this.pairingCodes.set(newCode, agentToken);
+          // Notify agent of its new code (if currently connected)
+          const agentEntry = this.agents.get(agentToken);
+          if (agentEntry) {
+            agentEntry.ws.send(JSON.stringify({ type: 'register_ok', pairingCode: newCode }));
+          }
+        }
+        ws.close(1000, 'Pairing invalidated');
         return;
       }
 
@@ -137,11 +172,10 @@ export class AgentRegistry {
     });
 
     ws.addEventListener('close', () => {
-      // Only clean up if this WS is still the active connection for this session.
-      // If the mobile app reconnected and registered a new WS, leave it intact.
+      // Only clean up the connection pointer, not the session itself.
+      // Sessions are kept alive so the mobile can auto-re-pair on reconnect.
       if (this.mobileConnections.get(sessionToken) === ws) {
         this.mobileConnections.delete(sessionToken);
-        this.sessions.delete(sessionToken);
       }
     });
   }
@@ -167,11 +201,10 @@ export class AgentRegistry {
 
       const sessionToken = crypto.randomUUID();
       this.sessions.set(sessionToken, agentToken);
+      this.sessionToPairingCode.set(sessionToken, msg.pairingCode);
       this.mobileConnections.set(sessionToken, ws);
       ws.send(JSON.stringify({ type: 'session_ok', sessionToken }));
-
-      // Pairing code is single-use
-      this.pairingCodes.delete(msg.pairingCode);
+      // Pairing code is now multi-use — intentionally NOT deleted
     });
   }
 
